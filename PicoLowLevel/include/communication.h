@@ -34,6 +34,7 @@
 #define JOINT_ROLL_2_SETPOINT          0x63
 #define JOINT_ROLL_2_FEEDBACK          0x64
 
+#define MOTOR_TRACTION_REBOOT           0x71 //TODO : INSERIE QUESTO
 // TODO: update to ROS2 equivalent
 #define DATA_PITCH                      0x04 // Deprecated?
 

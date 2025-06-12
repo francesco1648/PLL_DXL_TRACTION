@@ -473,7 +473,7 @@ uint8_t DynamixelLL::setGoalVelocity_RPM(const float (&rpmValues)[N])
 }
 
 template <uint8_t N>
-uint8_t DynamixelLL::getPresentVelocity_RPM(float (&rpms)[N])
+uint8_t DynamixelLL::getPresentVelocity_RPM(int32_t (&rpms)[N])
 {
     if (checkArraySize(N) != 0)
         return 1;
@@ -488,7 +488,7 @@ uint8_t DynamixelLL::getPresentVelocity_RPM(float (&rpms)[N])
     }
 
     for (uint8_t i = 0; i < _numMotors; i++)
-        rpms[i] = static_cast<int32_t>(rawValues[i]) * 0.229f;
+        rpms[i] = static_cast<int32_t>(rawValues[i]) ;
 
     return error;
 }

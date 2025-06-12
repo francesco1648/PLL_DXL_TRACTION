@@ -33,41 +33,13 @@ int time_data = 0;
 int time_tel_avg = DT_TEL;
 
 CanWrapper canW(5, 10000000UL, &SPI);
-//------
-float theta_dxl;
-float phi_dxl;
-int32_t valueToSend = 0;
 
-const uint8_t motorIDs[] = {210, 211};
-const uint8_t numMotors = sizeof(motorIDs) / sizeof(motorIDs[0]);
-int motor_num = 1;
-int32_t pos0_mot_2 = 0;
-int32_t pos0_mot_3 = 0;
-int32_t pos0_mot_4 = 0;
-int32_t pos0_mot_5 = 0;
-int32_t pos0_mot_6 = 0;
-int32_t getpositions0[2] = {0, 0}; // Initialize positions to 0
 
-int32_t pos_mot_2 = 0;
-int32_t pos_mot_3 = 0;
-int32_t pos_mot_4 = 0;
-int32_t pos_mot_5 = 0;
-int32_t pos_mot_6 = 0;
-int32_t getpositions[2] = {0, 0}; // Initialize positions to 0
 
-float servo_data_1a = 0.0f;
-float servo_data_1b = 0.0f;
-float servo_data_float = 0.0f;
 
-#define ProfileAcceleration 10
-#define ProfileVelocity 20
-
-//------
-// SmartMotor motorTrLeft(DRV_TR_LEFT_PWM, DRV_TR_LEFT_DIR, ENC_TR_LEFT_A, ENC_TR_LEFT_B, false);
-// SmartMotor motorTrRight(DRV_TR_RIGHT_PWM, DRV_TR_RIGHT_DIR, ENC_TR_RIGHT_A, ENC_TR_RIGHT_B, true);
-//----------------------------------
+//================ Traction Motors =================
 DynamixelLL dxl_traction(Serial1, 0);
-const uint8_t motorIDs_traction[] = {212, 114}; // TODO : METTEREE GLI ADDRESS GIUSTI
+const uint8_t motorIDs_traction[] = {212, 114};
 const uint8_t numMotors_traction = sizeof(motorIDs_traction) / sizeof(motorIDs_traction[0]);
 DynamixelLL mot_Left_traction(Serial1, motorIDs_traction[0]);
 DynamixelLL mot_Right_traction(Serial1, motorIDs_traction[1]);
@@ -76,7 +48,7 @@ float old_speeds_dxl[2] = {0.0f, 0.0f};
 float delta_speeds_dxl = 2.0f;
 uint8_t data_dxl_traction[8];
 
-//------------------------------------
+
 
 #ifdef MODC_YAW
 AbsoluteEncoder encoderYaw(ABSOLUTE_ENCODER_ADDRESS);
@@ -88,8 +60,49 @@ DynamixelMotor motorEEHeadPitch(SERVO_EE_HEAD_PITCH_ID);
 DynamixelMotor motorEEHeadRoll(SERVO_EE_HEAD_ROLL_ID);
 #endif
 
-// WebManagement wm(CONF_PATH);
+
 #ifdef MODC_ARM
+//=====
+float theta_dxl;
+float phi_dxl;
+int32_t valueToSend = 0;
+
+const uint8_t motorIDs[] = {210, 211};
+const uint8_t numMotors = sizeof(motorIDs) / sizeof(motorIDs[0]);
+
+//variabili per la posizione iniziale
+int32_t pos0_mot_2 = 0;
+int32_t pos0_mot_3 = 0;
+int32_t pos0_mot_4 = 0;
+int32_t pos0_mot_5 = 0;
+int32_t pos0_mot_6 = 0;
+int32_t getpositions0[2] = {0, 0};
+
+//variabili per la posizione attuale
+int32_t pos_mot_2 = 0;
+int32_t pos_mot_3 = 0;
+int32_t pos_mot_4 = 0;
+int32_t pos_mot_5 = 0;
+int32_t pos_mot_6 = 0;
+int32_t pos_mot_6_actual = 0;
+int32_t getpositions[2] = {0, 0};
+
+//variabili per il feedback
+  int32_t posf_1a1b[2] = {0, 0};
+  int32_t posf_2 = 0;
+  int32_t posf_3 = 0;
+  int32_t posf_4 = 0;
+  int32_t posf_5 = 0;
+
+float servo_data_1a = 0.0f;
+float servo_data_1b = 0.0f;
+float servo_data_float = 0.0f;
+
+#define ProfileAcceleration 10
+#define ProfileVelocity 20
+
+int16_t presentLoad_mot_6 = 0;
+
 DynamixelLL dxl(Serial1, 0);
 DynamixelLL mot_Left_1(Serial1, motorIDs[0]);
 DynamixelLL mot_Right_1(Serial1, motorIDs[1]);
@@ -103,12 +116,15 @@ DynamixelLL mot_6(Serial1, 216);
 
 Display display;
 
-void setup()
-{
+void MODC_ARM_INIT();
+void DXL_TRACTION_INIT();
+
+void setup(){
+
   Serial.begin(115200);
 
-
   Debug.setLevel(Levels::INFO); // comment to set debug verbosity to debug
+Debug.println("BEGIN", Levels::INFO);
   Wire1.setSDA(I2C_SENS_SDA);
   Wire1.setSCL(I2C_SENS_SCL);
   Wire1.begin();
@@ -119,10 +135,14 @@ void setup()
   SPI.setTX(7);
   SPI.begin();
 
-  // LittleFS.begin();
+  Serial1.setTX(0);
+  Serial1.setRX(1);
+  Serial1.begin(1000000); // Set baud rate for Dynamixel communication
+
+
 
   String hostname = WIFI_HOSTBASE + String(CAN_ID);
-  // wm.begin(WIFI_SSID, WIFI_PWD, hostname.c_str());
+
 
   // CAN initialization
   canW.begin();
@@ -133,154 +153,6 @@ void setup()
 
   // initializing ADC
   analogReadResolution(12); // set precision to 12 bits, 0-4095 input
-
-#if defined MODC_EE
-  Serial1.setRX(1);
-  Serial1.setTX(0);
-  Dynamixel.setSerial(&Serial1);
-  Dynamixel.begin(19200);
-#endif
-
-  Debug.println("BEGIN", Levels::INFO);
-
-#ifdef MODC_YAW
-  encoderYaw.update();
-  encoderYaw.readAngle();
-  encoderYaw.setZero();
-#endif
-
-#ifdef MODC_ARM
-  Serial1.setTX(0);
-  Serial1.setRX(1);
-  dxl.begin_dxl(1000000);
-  mot_Left_1.begin_dxl(1000000);
-  mot_Right_1.begin_dxl(1000000);
-  mot_2.begin_dxl(1000000);
-  mot_3.begin_dxl(1000000);
-  mot_4.begin_dxl(1000000);
-  mot_5.begin_dxl(1000000);
-  mot_6.begin_dxl(1000000);
-
-  mot_Right_1.setTorqueEnable(false); // Disable torque for safety
-  mot_Left_1.setTorqueEnable(false);  // Disable torque for safety
-  mot_2.setTorqueEnable(false);       // Disable torque for safety
-  mot_3.setTorqueEnable(false);       // Disable torque for safety
-  mot_4.setTorqueEnable(false);       // Disable torque for safety
-  mot_5.setTorqueEnable(false);       // Disable torque for safety
-  mot_6.setTorqueEnable(false);
-
-  delay(10);
-  mot_6.setStatusReturnLevel(2);
-
-  delay(10);
-  // Initialize a known present position for troubleshooting.
-
-  getpositions[0] = 0;
-  getpositions[1] = 0;
-  // getLoads[0] = 0;
-  // getLoads[1] = 0;
-
-  // Enable or disable debug mode for troubleshooting
-  mot_Left_1.setDebug(false);
-  mot_Right_1.setDebug(false);
-  mot_2.setDebug(false);
-  mot_3.setDebug(false);
-  mot_4.setDebug(false);
-  mot_5.setDebug(false);
-  mot_6.setDebug(false);
-  dxl.setDebug(false);
-
-  // Enable sync mode for multiple motor control.
-  dxl.enableSync(motorIDs, numMotors);
-
-  // Configure Drive Mode for each motor:
-  mot_Left_1.setDriveMode(false, false, false);
-  mot_Right_1.setDriveMode(false, false, false);
-  mot_2.setDriveMode(false, false, false);
-  mot_3.setDriveMode(false, false, false);
-  mot_4.setDriveMode(false, false, false);
-  mot_5.setDriveMode(false, false, false);
-  mot_6.setDriveMode(false, false, false);
-
-  // Set Operating Mode for each motor:
-  dxl.setOperatingMode(4); // Extended Position Mode
-  mot_2.setOperatingMode(4);
-  mot_3.setOperatingMode(4);
-  mot_4.setOperatingMode(4);
-  mot_5.setOperatingMode(4);
-  mot_6.setOperatingMode(4);
-
-  // Set Homing Offset for each motor:
-  // dxl.setHomingOffset(homingOffset);
-
-  // Enable torque for both motors.
-  dxl.setTorqueEnable(true);
-  mot_2.setTorqueEnable(true);
-  mot_3.setTorqueEnable(true);
-  mot_4.setTorqueEnable(true);
-  mot_5.setTorqueEnable(true);
-  mot_6.setTorqueEnable(true);
-
-  /*
-  mot1a 1780  mot1b 2957
-  mot2 2122
-  mot3 -1951
-  mot4 1159
-  mot5 5164
-  mot6 -1098
-  */
-
-  delay(10);
-  // Set Profile Velocity and Profile Acceleration for smooth motion.
-  mot_Left_1.setProfileVelocity(ProfileVelocity);
-  mot_Left_1.setProfileAcceleration(ProfileAcceleration);
-  mot_Right_1.setProfileVelocity(ProfileVelocity);
-  mot_Right_1.setProfileAcceleration(ProfileAcceleration);
-  mot_2.setProfileVelocity(ProfileVelocity);
-  mot_2.setProfileAcceleration(ProfileAcceleration);
-  mot_3.setProfileVelocity(ProfileVelocity);
-  mot_3.setProfileAcceleration(ProfileAcceleration);
-  mot_4.setProfileVelocity(ProfileVelocity);
-  mot_4.setProfileAcceleration(ProfileAcceleration);
-  mot_5.setProfileVelocity(ProfileVelocity);
-  mot_5.setProfileAcceleration(ProfileAcceleration);
-  mot_6.setProfileVelocity(ProfileVelocity);
-  mot_6.setProfileAcceleration(ProfileAcceleration);
-
-
-  // Enable torque for all motors.
-  dxl.setTorqueEnable(true);
-  mot_Left_1.setTorqueEnable(true);
-  mot_Right_1.setTorqueEnable(true);
-  mot_2.setTorqueEnable(true);
-  mot_3.setTorqueEnable(true);
-  mot_4.setTorqueEnable(true);
-  mot_5.setTorqueEnable(true);
-  mot_6.setTorqueEnable(true);
-
-  getpositions0[0] = 2695; // Initialize positions to 0
-  getpositions0[1] = 813;  // Initialize positions to 0
-  pos0_mot_2 = 4851;
-  pos0_mot_3 = -1895;
-  pos0_mot_4 = 3209;
-  pos0_mot_5 = 7181;
-  pos0_mot_6 = -1009; // Initialize positions to 0
-
-  dxl.setGoalPosition_EPCM(getpositions0);
-  mot_2.setGoalPosition_EPCM(pos0_mot_2); // Address 65, Value 1, Size 1 byte
-  mot_3.setGoalPosition_EPCM(pos0_mot_3); // Address 65, Value 1, Size 1 byte
-  mot_4.setGoalPosition_EPCM(pos0_mot_4); // Address 65, Value 1, Size 1 byte
-  mot_5.setGoalPosition_EPCM(pos0_mot_5); // Address 65, Value 1, Size 1 byte
-  mot_6.setGoalPosition_EPCM(pos0_mot_6); // Address 65, Value 1, Size 1 byte
-
-#endif
-                                          // motor initialization
-                                          // motorTrLeft.begin();
-                                          // motorTrRight.begin();
-
-  // motorTrLeft.calibrate();
-  // motorTrRight.calibrate();
-  //  Display initialization
   display.begin();
 
   // Buttons initialization
@@ -289,47 +161,28 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(BTNOK), okInterrupt, FALLING);
   attachInterrupt(digitalPinToInterrupt(BTNNAV), navInterrupt, FALLING);
 
-  //-----------------------------------------------------------------
+  DXL_TRACTION_INIT();
 
-  Serial1.setTX(0);
+
+
+#if defined MODC_EE
   Serial1.setRX(1);
-  Serial1.begin(1000000); // Set baud rate for Dynamixel communication
-  dxl_traction.begin_dxl(1000000);
-  mot_Left_traction.begin_dxl(1000000);
-  mot_Right_traction.begin_dxl(1000000);
+  Serial1.setTX(0);
+  Dynamixel.setSerial(&Serial1);
+  Dynamixel.begin(19200);
+#endif
 
-  mot_Right_traction.setTorqueEnable(false); // Disable torque for safety
-  mot_Left_traction.setTorqueEnable(false);  // Disable torque for safety
+#ifdef MODC_YAW
+  encoderYaw.update();
+  encoderYaw.readAngle();
+  encoderYaw.setZero();
+#endif
 
-  delay(10);
-
-  // Enable or disable debug mode for troubleshooting
-  mot_Left_traction.setDebug(false);
-  mot_Right_traction.setDebug(false);
-  dxl_traction.setDebug(false);
-
-  // Enable sync mode for multiple motor control.
-  dxl_traction.enableSync(motorIDs_traction, numMotors_traction);
-
-  // Configure Drive Mode for each motor:
-  mot_Left_traction.setDriveMode(false, false, true); // TODO : CONTROLLARE
-  mot_Right_traction.setDriveMode(false, false, false);
-
-  // Set Operating Mode for each motor:
-  dxl_traction.setOperatingMode(1);      // VELOCITY Mode
-  mot_Left_traction.setOperatingMode(1); // 1 = Velocity Control Mode
-  mot_Right_traction.setOperatingMode(1);
-
-  // Enable torque for both motors.
-  dxl_traction.setTorqueEnable(true);
-  mot_Left_traction.setTorqueEnable(true);
-  mot_Right_traction.setTorqueEnable(true);
-  mot_Left_traction.setLED(true);
-  mot_Right_traction.setLED(true);
+#ifdef MODC_ARM
+  MODC_ARM_INIT();
+#endif
 
   Serial.println("Setup complete. Waiting for CAN messages...");
-
-  //-------------------------------------------------------------------
 }
 
 void loop()
@@ -337,10 +190,7 @@ void loop()
   int time_cur = millis();
   uint8_t msg_id;
   byte msg_data[8];
-  motor_num = 1;
-  // motorTrLeft.update();
-  motor_num = 2;
-  // motorTrRight.update();
+
 
   // health checks
   if (time_cur - time_bat >= DT_BAT)
@@ -389,7 +239,6 @@ void loop()
 
   // wm.handle();
   display.handleGUI();
-
 }
 
 /**
@@ -401,28 +250,29 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
 {
   int32_t servo_data;
 
+  switch (msg_id){
 
-
-  switch (msg_id)
-  {
+  //========================================================
   case MOTOR_SETPOINT:
   {
-    float leftSpeed, rightSpeed;
+
 
     memcpy(&speeds_dxl[0], msg_data, 4);
     memcpy(&speeds_dxl[1], msg_data + 4, 4);
 
-    // motorTrLeft.setSpeed(leftSpeed);
-    // motorTrRight.setSpeed(rightSpeed);
-    if(abs(speeds_dxl-old_speeds_dxl)> delta_speeds_dxl){
-    dxl_traction.setGoalVelocity_RPM(speeds_dxl);
-    old_speeds_dxl[0] = speeds_dxl[0];
-    old_speeds_dxl[1] = speeds_dxl[1];
+    speeds_dxl[0] = speeds_dxl[0] * 0.667f; // adatto il massimo mandato dal telecomando (450.f) al massimo del motore (30 RPM)
+    speeds_dxl[1] = speeds_dxl[1] * 0.667f; // adatto il massimo mandato dal telecomando (450.f) al massimo del motore (30 RPM)
+    if (abs(speeds_dxl - old_speeds_dxl) > delta_speeds_dxl)
+    {
+      dxl_traction.setGoalVelocity_RPM(speeds_dxl );
+      old_speeds_dxl[0] = speeds_dxl[0];
+      old_speeds_dxl[1] = speeds_dxl[1];
     }
     Debug.println("TRACTION DATA :\tleft: \t" + String(speeds_dxl[0]) + "\tright: \t" + String(speeds_dxl[1]));
     break;
   }
 
+//========================================================
   case DATA_EE_PITCH_SETPOINT:
     memcpy(&servo_data, msg_data, 4);
 #ifdef MODC_EE
@@ -432,6 +282,7 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
     Debug.println(servo_data);
     break;
 
+//========================================================
   case DATA_EE_HEAD_PITCH_SETPOINT:
     memcpy(&servo_data, msg_data, 2);
 #ifdef MODC_EE
@@ -441,6 +292,7 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
     Debug.println(servo_data);
     break;
 
+//========================================================
   case DATA_EE_HEAD_ROLL_SETPOINT:
     memcpy(&servo_data, msg_data, 2);
 #ifdef MODC_EE
@@ -450,6 +302,7 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
     Debug.println(servo_data);
     break;
 
+//========================================================
   case ARM_PITCH_1a1b_SETPOINT:
     memcpy(&servo_data_1a, msg_data, 4);
     memcpy(&servo_data_1b, msg_data + 4, 4);
@@ -459,7 +312,6 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
     getpositions[1] = (int32_t)(((theta_dxl * (4096 / (2.0 * M_PI))) - (phi_dxl * (4096 / (2.0 * M_PI)))) / 2) + getpositions0[1];
 #ifdef MODC_ARM
     dxl.setGoalPosition_EPCM(getpositions);
-    Serial.println("ARM PITCH 1a1b SETPOINT: " + String(getpositions[0]) + ", " + String(getpositions[1]));
 #endif
     Debug.print("PITCH ARM 1a MOTOR DATA : \t");
     Debug.println(getpositions[0]);
@@ -467,72 +319,78 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
     Debug.println(getpositions[1]);
     break;
 
+//========================================================
   case ARM_PITCH_2_SETPOINT:
     memcpy(&servo_data_float, msg_data, 4);
-    Serial.println("servo_data: " + String(servo_data_float));
     valueToSend = (int32_t)(servo_data_float * (4096 / (2.0 * M_PI)));
-    Serial.println("valueToSend: " + String(valueToSend));
     pos_mot_2 = valueToSend + pos0_mot_2;
 #ifdef MODC_ARM
     mot_2.setGoalPosition_EPCM(pos_mot_2);
-    Serial.println("ARM PITCH 2 SETPOINT: " + String(pos_mot_2));
 #endif
     Debug.print("PITCH ARM 2 MOTOR DATA : \t");
     Debug.println(pos_mot_2);
     break;
 
+//========================================================
   case ARM_ROLL_3_SETPOINT:
     memcpy(&servo_data_float, msg_data, 4);
     valueToSend = (int32_t)(servo_data_float * (4096 / (2.0 * M_PI)));
     pos_mot_3 = valueToSend + pos0_mot_3;
 #ifdef MODC_ARM
     mot_3.setGoalPosition_EPCM(pos_mot_3);
-    Serial.println("ARM ROLL 3 SETPOINT: " + String(pos_mot_3));
 #endif
     Debug.print("ROLL ARM 3 MOTOR DATA : \t");
     Debug.println(pos_mot_3);
     break;
 
+//========================================================
   case ARM_PITCH_4_SETPOINT:
     memcpy(&servo_data_float, msg_data, 4);
     valueToSend = (int32_t)(servo_data_float * (4096 / (2.0 * M_PI)));
     pos_mot_4 = pos0_mot_4 + valueToSend;
 #ifdef MODC_ARM
     mot_4.setGoalPosition_EPCM(pos_mot_4);
-    Serial.println("ARM PITCH 4 SETPOINT: " + String(pos_mot_4));
 #endif
     Debug.print("PITCH ARM 4 MOTOR DATA : \t");
     Debug.println(pos_mot_4);
     break;
 
+//========================================================
   case ARM_ROLL_5_SETPOINT:
     memcpy(&servo_data_float, msg_data, 4);
     valueToSend = (int32_t)(servo_data_float * (4096 / (2.0 * M_PI)));
     pos_mot_5 = pos0_mot_5 - valueToSend;
 #ifdef MODC_ARM
     mot_5.setGoalPosition_EPCM(pos_mot_5);
-    Serial.println("ARM ROLL 5 SETPOINT: " + String(pos0_mot_5));
-    Serial.println("valueToSend: " + String(valueToSend));
-    Serial.println("servo_data_float: " + String(servo_data_float));
 #endif
     Debug.print("ROLL ARM 5 MOTOR DATA : \t");
     Debug.println(pos0_mot_5);
     break;
 
+//========================================================
   case ARM_ROLL_6_SETPOINT:
     memcpy(&servo_data_float, msg_data, 4);
     valueToSend = (int32_t)(servo_data_float * (4096 / (2.0 * M_PI)));
     pos_mot_6 = pos0_mot_6 - valueToSend;
 #ifdef MODC_ARM
-    mot_6.setGoalPosition_EPCM(pos_mot_6);
-    Serial.println("ARM ROLL 5 SETPOINT: " + String(pos0_mot_5));
-    Serial.println("valueToSend: " + String(valueToSend));
-    Serial.println("servo_data_float: " + String(servo_data_float));
+    mot_6.getCurrentLoad(presentLoad_mot_6);
+    mot_6.getPresentPosition(pos_mot_6_actual);
+    while(presentLoad_mot_6<200 && abs(pos_mot_6_actual - pos_mot_6) > 10){
+    mot_6.getCurrentLoad(presentLoad_mot_6);
+    if(pos_mot_6_actual> pos_mot_6){
+    mot_6.setGoalPosition_EPCM(pos_mot_6_actual - 10);
+    pos_mot_6_actual -= 10;
+    }else{
+    mot_6.setGoalPosition_EPCM(pos_mot_6_actual + 10);
+    pos_mot_6_actual += 10;
+    }
+    }
 #endif
     Debug.print("ROLL ARM 5 MOTOR DATA : \t");
     Debug.println(pos0_mot_5);
     break;
 
+//========================================================
   case JOINT_PITCH_1d1s_SETPOINT:
     memcpy(&servo_data, msg_data, 2);
 #ifdef MODC_JOINT
@@ -549,6 +407,12 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
     Debug.print("ROLL JOINT 2 MOTOR DATA : \t");
     Debug.println(servo_data);
     break;
+//========================================================
+  case MOTOR_TRACTION_REBOOT:
+    mot_Left_traction.reboot();
+    mot_Right_traction.reboot();
+    Debug.println("Traction motors rebooted.");
+    break;
   }
 }
 
@@ -560,22 +424,18 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
  *
  * @note The function uses conditional compilation to include/exclude parts of the code based on the presence of specific modules.
  */
-void sendFeedback()
-{
-
-  // send motor data
- // float speeds[2] = {motorTrLeft.getSpeed(), motorTrRight.getSpeed()};
-float currentSpeeds_left;
-float currentSpeeds_right;
-mot_Left_traction.getPresentVelocity_RPM(currentSpeeds_left);
-mot_Right_traction.getPresentVelocity_RPM(currentSpeeds_right);
+void sendFeedback(){
 
 
-memcpy(&data_dxl_traction[0], &currentSpeeds_left, 4);  // copia il primo float nei primi 4 byte
-memcpy(&data_dxl_traction[4], &currentSpeeds_right, 4);  // copia il secondo float nei secondi 4 byte
+  int32_t currentSpeeds_left;
+  int32_t currentSpeeds_right;
+  mot_Left_traction.getPresentVelocity_RPM(currentSpeeds_left);
+  mot_Right_traction.getPresentVelocity_RPM(currentSpeeds_right);
 
-canW.sendMessage(MOTOR_FEEDBACK, data_dxl_traction, 8);
+  memcpy(&data_dxl_traction[0], &currentSpeeds_left, 4);  // copia il primo int32_t nei primi 4 byte
+  memcpy(&data_dxl_traction[4], &currentSpeeds_right, 4); // copia il secondo float nei secondi 4 byte
 
+  canW.sendMessage(MOTOR_FEEDBACK, data_dxl_traction, 8);
 
   // send yaw angle of the joint if this module has one
 #ifdef MODC_YAW
@@ -595,38 +455,32 @@ canW.sendMessage(MOTOR_FEEDBACK, data_dxl_traction, 8);
   canW.sendMessage(DATA_EE_HEAD_ROLL_FEEDBACK, &headRoll, 4);
 #endif
 
-   // Send the present position data of the arm motors
-  #ifdef MODC_ARM
-    int32_t posf_1a1b[2] = {0, 0}; // Declare and initialize the array
-    int32_t posf_2 = 0;
-    int32_t posf_3 = 0;
-    int32_t posf_4 = 0;
-    int32_t posf_5 = 0;
+  // Send the present position data of the arm motors
+#ifdef MODC_ARM
+  dxl.getPresentPosition(posf_1a1b);
+  mot_2.getPresentPosition(posf_2);
+  mot_3.getPresentPosition(posf_3);
+  mot_4.getPresentPosition(posf_4);
+  mot_5.getPresentPosition(posf_5);
 
-    dxl.getPresentPosition(posf_1a1b);
-    mot_2.getPresentPosition(posf_2);
-    mot_3.getPresentPosition(posf_3);
-    mot_4.getPresentPosition(posf_4);
-    mot_5.getPresentPosition(posf_5);
+  // canW.sendMessage(ARM_PITCH_1a1b_FEEDBACK, posf_1a1b, sizeof(posf_1a1b));
+  canW.sendMessage(ARM_PITCH_2_FEEDBACK, &posf_2, sizeof(posf_2));
+  canW.sendMessage(ARM_ROLL_3_FEEDBACK, &posf_3, sizeof(posf_3));
+  canW.sendMessage(ARM_PITCH_4_FEEDBACK, &posf_4, sizeof(posf_4));
+  canW.sendMessage(ARM_ROLL_5_FEEDBACK, &posf_5, sizeof(posf_5));
+#endif
 
-    //canW.sendMessage(ARM_PITCH_1a1b_FEEDBACK, posf_1a1b, sizeof(posf_1a1b));
-    canW.sendMessage(ARM_PITCH_2_FEEDBACK, &posf_2, sizeof(posf_2));
-    canW.sendMessage(ARM_ROLL_3_FEEDBACK, &posf_3, sizeof(posf_3));
-    canW.sendMessage(ARM_PITCH_4_FEEDBACK, &posf_4, sizeof(posf_4));
-    canW.sendMessage(ARM_ROLL_5_FEEDBACK, &posf_5, sizeof(posf_5));
-  #endif
+  // Send the present position data of the joint motors
+#ifdef MODC_JOINT
+  uint32_t pos_1d1s[numMotors] = {0, 0}; // Declare and initialize the array
+  uint32_t pos_2 = 0;
 
-    // Send the present position data of the joint motors
-  #ifdef MODC_JOINT
-    uint32_t pos_1d1s[numMotors] = {0, 0}; // Declare and initialize the array
-    uint32_t pos_2 = 0;
+  dxlJOINT.getPresentPosition(pos_1d1s);
+  motorJOINT2Roll.getPresentPosition(pos_2);
 
-    dxlJOINT.getPresentPosition(pos_1d1s);
-    motorJOINT2Roll.getPresentPosition(pos_2);
-
-    canW.sendMessage(JOINT_PITCH_1d1s_FEEDBACK, pos_1d1s, sizeof(pos_1d1s));
-    canW.sendMessage(JOINT_ROLL_2_FEEDBACK, &pos_2, sizeof(pos_2));
-  #endif /**/
+  canW.sendMessage(JOINT_PITCH_1d1s_FEEDBACK, pos_1d1s, sizeof(pos_1d1s));
+  canW.sendMessage(JOINT_ROLL_2_FEEDBACK, &pos_2, sizeof(pos_2));
+#endif /**/
 }
 
 void okInterrupt()
@@ -637,4 +491,156 @@ void okInterrupt()
 void navInterrupt()
 {
   display.navInterrupt();
+}
+
+void MODC_ARM_INIT(){ // Initialize Dynamixel motors for the arm
+
+  // Set the baud rate for Dynamixel communication
+  dxl.begin_dxl(1000000);
+  mot_Left_1.begin_dxl(1000000);
+  mot_Right_1.begin_dxl(1000000);
+  mot_2.begin_dxl(1000000);
+  mot_3.begin_dxl(1000000);
+  mot_4.begin_dxl(1000000);
+  mot_5.begin_dxl(1000000);
+  mot_6.begin_dxl(1000000);
+
+  mot_Right_1.setTorqueEnable(false); // Disable torque for safety
+  mot_Left_1.setTorqueEnable(false);
+  mot_2.setTorqueEnable(false);
+  mot_3.setTorqueEnable(false);
+  mot_4.setTorqueEnable(false);
+  mot_5.setTorqueEnable(false);
+  mot_6.setTorqueEnable(false);
+
+  delay(10);
+  mot_6.setStatusReturnLevel(2);
+
+  delay(10);
+
+  // Enable or disable debug mode for troubleshooting
+  mot_Left_1.setDebug(false);
+  mot_Right_1.setDebug(false);
+  mot_2.setDebug(false);
+  mot_3.setDebug(false);
+  mot_4.setDebug(false);
+  mot_5.setDebug(false);
+  mot_6.setDebug(false);
+  dxl.setDebug(false);
+
+  // Enable sync mode for multiple motor control.
+  dxl.enableSync(motorIDs, numMotors);
+
+  // Configure Drive Mode for each motor:
+  mot_Left_1.setDriveMode(false, false, false);
+  mot_Right_1.setDriveMode(false, false, false);
+  mot_2.setDriveMode(false, false, false);
+  mot_3.setDriveMode(false, false, false);
+  mot_4.setDriveMode(false, false, false);
+  mot_5.setDriveMode(false, false, false);
+  mot_6.setDriveMode(false, false, false);
+
+  // Set Operating Mode for each motor:
+  dxl.setOperatingMode(4); // Extended Position Mode
+  mot_2.setOperatingMode(4);
+  mot_3.setOperatingMode(4);
+  mot_4.setOperatingMode(4);
+  mot_5.setOperatingMode(4);
+  mot_6.setOperatingMode(4);
+
+
+
+  // Enable torque for both motors.
+  dxl.setTorqueEnable(true);
+  mot_2.setTorqueEnable(true);
+  mot_3.setTorqueEnable(true);
+  mot_4.setTorqueEnable(true);
+  mot_5.setTorqueEnable(true);
+  mot_6.setTorqueEnable(true);
+
+  /*
+  mot1a 1780  mot1b 2957
+  mot2 2122
+  mot3 -1951
+  mot4 1159
+  mot5 5164
+  mot6 -1098
+  */
+
+  delay(10);
+  // Set Profile Velocity and Profile Acceleration for smooth motion.
+  mot_Left_1.setProfileVelocity(ProfileVelocity);
+  mot_Left_1.setProfileAcceleration(ProfileAcceleration);
+  mot_Right_1.setProfileVelocity(ProfileVelocity);
+  mot_Right_1.setProfileAcceleration(ProfileAcceleration);
+  mot_2.setProfileVelocity(ProfileVelocity);
+  mot_2.setProfileAcceleration(ProfileAcceleration);
+  mot_3.setProfileVelocity(ProfileVelocity);
+  mot_3.setProfileAcceleration(ProfileAcceleration);
+  mot_4.setProfileVelocity(ProfileVelocity);
+  mot_4.setProfileAcceleration(ProfileAcceleration);
+  mot_5.setProfileVelocity(ProfileVelocity);
+  mot_5.setProfileAcceleration(ProfileAcceleration);
+  mot_6.setProfileVelocity(ProfileVelocity);
+  mot_6.setProfileAcceleration(ProfileAcceleration);
+
+  // Enable torque for all motors.
+  dxl.setTorqueEnable(true);
+  mot_Left_1.setTorqueEnable(true);
+  mot_Right_1.setTorqueEnable(true);
+  mot_2.setTorqueEnable(true);
+  mot_3.setTorqueEnable(true);
+  mot_4.setTorqueEnable(true);
+  mot_5.setTorqueEnable(true);
+  mot_6.setTorqueEnable(true);
+
+  getpositions0[0] = 2695; // Initialize positions to 0
+  getpositions0[1] = 813;  // Initialize positions to 0
+  pos0_mot_2 = 4851;
+  pos0_mot_3 = -1895;
+  pos0_mot_4 = 3209;
+  pos0_mot_5 = 7181;
+  pos0_mot_6 = -1009; // Initialize positions to 0
+
+  dxl.setGoalPosition_EPCM(getpositions0);
+  mot_2.setGoalPosition_EPCM(pos0_mot_2); // Address 65, Value 1, Size 1 byte
+  mot_3.setGoalPosition_EPCM(pos0_mot_3); // Address 65, Value 1, Size 1 byte
+  mot_4.setGoalPosition_EPCM(pos0_mot_4); // Address 65, Value 1, Size 1 byte
+  mot_5.setGoalPosition_EPCM(pos0_mot_5); // Address 65, Value 1, Size 1 byte
+  mot_6.setGoalPosition_EPCM(pos0_mot_6); // Address 65, Value 1, Size 1 byte
+}
+
+void DXL_TRACTION_INIT(){
+  dxl_traction.begin_dxl(1000000);
+  mot_Left_traction.begin_dxl(1000000);
+  mot_Right_traction.begin_dxl(1000000);
+
+  mot_Right_traction.setTorqueEnable(false); // Disable torque for safety
+  mot_Left_traction.setTorqueEnable(false);  // Disable torque for safety
+
+  delay(10);
+
+  // Enable or disable debug mode for troubleshooting
+  mot_Left_traction.setDebug(false);
+  mot_Right_traction.setDebug(false);
+  dxl_traction.setDebug(false);
+
+  // Enable sync mode for multiple motor control.
+  dxl_traction.enableSync(motorIDs_traction, numMotors_traction);
+
+  // Configure Drive Mode for each motor:
+  mot_Left_traction.setDriveMode(false, false, true); // TODO : CONTROLLARE
+  mot_Right_traction.setDriveMode(false, false, false);
+
+  // Set Operating Mode for each motor:
+  dxl_traction.setOperatingMode(1);      // VELOCITY Mode
+  mot_Left_traction.setOperatingMode(1); // 1 = Velocity Control Mode
+  mot_Right_traction.setOperatingMode(1);
+
+  // Enable torque for both motors.
+  dxl_traction.setTorqueEnable(true);
+  mot_Left_traction.setTorqueEnable(true);
+  mot_Right_traction.setTorqueEnable(true);
+  mot_Left_traction.setLED(true);
+  mot_Right_traction.setLED(true);
 }

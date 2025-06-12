@@ -1313,9 +1313,9 @@ uint8_t DynamixelLL::setGoalVelocity_RPM(float rpm)
 }
 
 
-uint8_t DynamixelLL::getPresentVelocity_RPM(float &rpm)
+uint8_t DynamixelLL::getPresentVelocity_RPM(int32_t &rpm)
 {
-    uint32_t raw = 0;
+    uint32_t  raw = 0;
     uint8_t error = readRegister(128, raw, 4); // address 128, 4 bytes
 
     if (error != 0)
@@ -1328,9 +1328,7 @@ uint8_t DynamixelLL::getPresentVelocity_RPM(float &rpm)
         rpm = 0;
         return error;
     }
-
-    int32_t signedRaw = static_cast<int32_t>(raw);
-    rpm = signedRaw * 0.229f;
+     rpm = static_cast<int32_t>(raw);
 
     return 0;
 }

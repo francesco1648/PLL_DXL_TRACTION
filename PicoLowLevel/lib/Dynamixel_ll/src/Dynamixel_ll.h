@@ -409,7 +409,7 @@ public:
      * @return uint8_t 0 on success, nonzero on error.
      */
 
-    uint8_t getPresentVelocity_RPM(float &rpm);
+    uint8_t getPresentVelocity_RPM(int32_t &rpm);
 
     /**
      * @brief Retrieves the current present velocity in RPM for multiple motors.
@@ -419,7 +419,7 @@ public:
      * @return uint8_t 0 on success, nonzero on error.
      */
     template <uint8_t N>
-    uint8_t getPresentVelocity_RPM(float (&rpms)[N]);
+    uint8_t getPresentVelocity_RPM(int32_t (&rpms)[N]);
 
 
 

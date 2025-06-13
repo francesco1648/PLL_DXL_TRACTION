@@ -26,6 +26,11 @@ void okInterrupt();
 void navInterrupt();
 void sendFeedback();
 void handleSetpoint(uint8_t msg_id, const byte *msg_data);
+void DXL_TRACTION_INIT();
+#ifdef MODC_ARM
+void MODC_ARM_INIT();
+#endif
+
 
 int time_bat = 0;
 int time_tel = 0;
@@ -33,9 +38,6 @@ int time_data = 0;
 int time_tel_avg = DT_TEL;
 
 CanWrapper canW(5, 10000000UL, &SPI);
-
-
-
 
 //================ Traction Motors =================
 DynamixelLL dxl_traction(Serial1, 0);
@@ -48,8 +50,6 @@ float old_speeds_dxl[2] = {0.0f, 0.0f};
 float delta_speeds_dxl = 2.0f;
 uint8_t data_dxl_traction[8];
 
-
-
 #ifdef MODC_YAW
 AbsoluteEncoder encoderYaw(ABSOLUTE_ENCODER_ADDRESS);
 #endif
@@ -59,18 +59,14 @@ DynamixelMotor motorEEPitch(SERVO_EE_PITCH_ID);
 DynamixelMotor motorEEHeadPitch(SERVO_EE_HEAD_PITCH_ID);
 DynamixelMotor motorEEHeadRoll(SERVO_EE_HEAD_ROLL_ID);
 #endif
-
-
+// Dichiarazione variabili per i motori del braccio
 #ifdef MODC_ARM
-//=====
-float theta_dxl;
-float phi_dxl;
-int32_t valueToSend = 0;
+
 
 const uint8_t motorIDs[] = {210, 211};
 const uint8_t numMotors = sizeof(motorIDs) / sizeof(motorIDs[0]);
 
-//variabili per la posizione iniziale
+// variabili per la posizione iniziale
 int32_t pos0_mot_2 = 0;
 int32_t pos0_mot_3 = 0;
 int32_t pos0_mot_4 = 0;
@@ -78,7 +74,7 @@ int32_t pos0_mot_5 = 0;
 int32_t pos0_mot_6 = 0;
 int32_t getpositions0[2] = {0, 0};
 
-//variabili per la posizione attuale
+// variabili per la posizione attuale da mandare ai motori
 int32_t pos_mot_2 = 0;
 int32_t pos_mot_3 = 0;
 int32_t pos_mot_4 = 0;
@@ -86,14 +82,17 @@ int32_t pos_mot_5 = 0;
 int32_t pos_mot_6 = 0;
 int32_t pos_mot_6_actual = 0;
 int32_t getpositions[2] = {0, 0};
+float theta_dxl;
+float phi_dxl;
+int32_t valueToSend = 0;
 
-//variabili per il feedback
-  int32_t posf_1a1b[2] = {0, 0};
-  int32_t posf_2 = 0;
-  int32_t posf_3 = 0;
-  int32_t posf_4 = 0;
-  int32_t posf_5 = 0;
-
+// variabili per il feedback
+int32_t posf_1a1b[2] = {0, 0};
+int32_t posf_2 = 0;
+int32_t posf_3 = 0;
+int32_t posf_4 = 0;
+int32_t posf_5 = 0;
+//variabili per lettura dal CAN della posizione desiderata dei motori
 float servo_data_1a = 0.0f;
 float servo_data_1b = 0.0f;
 float servo_data_float = 0.0f;
@@ -106,25 +105,24 @@ int16_t presentLoad_mot_6 = 0;
 DynamixelLL dxl(Serial1, 0);
 DynamixelLL mot_Left_1(Serial1, motorIDs[0]);
 DynamixelLL mot_Right_1(Serial1, motorIDs[1]);
-DynamixelLL mot_2(Serial1, 112); // ID = 3
-DynamixelLL mot_3(Serial1, 113); // ID = 4
-DynamixelLL mot_4(Serial1, 214); // ID = 5
-DynamixelLL mot_5(Serial1, 215); // ID = 6
+DynamixelLL mot_2(Serial1, 112);
+DynamixelLL mot_3(Serial1, 113);
+DynamixelLL mot_4(Serial1, 214);
+DynamixelLL mot_5(Serial1, 215);
 DynamixelLL mot_6(Serial1, 216);
 
 #endif
 
 Display display;
 
-void MODC_ARM_INIT();
-void DXL_TRACTION_INIT();
 
-void setup(){
+void setup()
+{
 
   Serial.begin(115200);
 
   Debug.setLevel(Levels::INFO); // comment to set debug verbosity to debug
-Debug.println("BEGIN", Levels::INFO);
+  Debug.println("BEGIN", Levels::INFO);
   Wire1.setSDA(I2C_SENS_SDA);
   Wire1.setSCL(I2C_SENS_SCL);
   Wire1.begin();
@@ -138,11 +136,6 @@ Debug.println("BEGIN", Levels::INFO);
   Serial1.setTX(0);
   Serial1.setRX(1);
   Serial1.begin(1000000); // Set baud rate for Dynamixel communication
-
-
-
-  String hostname = WIFI_HOSTBASE + String(CAN_ID);
-
 
   // CAN initialization
   canW.begin();
@@ -162,8 +155,6 @@ Debug.println("BEGIN", Levels::INFO);
   attachInterrupt(digitalPinToInterrupt(BTNNAV), navInterrupt, FALLING);
 
   DXL_TRACTION_INIT();
-
-
 
 #if defined MODC_EE
   Serial1.setRX(1);
@@ -190,7 +181,6 @@ void loop()
   int time_cur = millis();
   uint8_t msg_id;
   byte msg_data[8];
-
 
   // health checks
   if (time_cur - time_bat >= DT_BAT)
@@ -250,12 +240,12 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
 {
   int32_t servo_data;
 
-  switch (msg_id){
+  switch (msg_id)
+  {
 
   //========================================================
   case MOTOR_SETPOINT:
   {
-
 
     memcpy(&speeds_dxl[0], msg_data, 4);
     memcpy(&speeds_dxl[1], msg_data + 4, 4);
@@ -264,7 +254,7 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
     speeds_dxl[1] = speeds_dxl[1] * 0.667f; // adatto il massimo mandato dal telecomando (450.f) al massimo del motore (30 RPM)
     if (abs(speeds_dxl - old_speeds_dxl) > delta_speeds_dxl)
     {
-      dxl_traction.setGoalVelocity_RPM(speeds_dxl );
+      dxl_traction.setGoalVelocity_RPM(speeds_dxl);
       old_speeds_dxl[0] = speeds_dxl[0];
       old_speeds_dxl[1] = speeds_dxl[1];
     }
@@ -272,7 +262,7 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
     break;
   }
 
-//========================================================
+    //========================================================
   case DATA_EE_PITCH_SETPOINT:
     memcpy(&servo_data, msg_data, 4);
 #ifdef MODC_EE
@@ -282,7 +272,7 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
     Debug.println(servo_data);
     break;
 
-//========================================================
+    //========================================================
   case DATA_EE_HEAD_PITCH_SETPOINT:
     memcpy(&servo_data, msg_data, 2);
 #ifdef MODC_EE
@@ -292,7 +282,7 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
     Debug.println(servo_data);
     break;
 
-//========================================================
+    //========================================================
   case DATA_EE_HEAD_ROLL_SETPOINT:
     memcpy(&servo_data, msg_data, 2);
 #ifdef MODC_EE
@@ -301,8 +291,8 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
     Debug.print("HEAD ROLL END EFFECTOR MOTOR DATA : \t");
     Debug.println(servo_data);
     break;
-
-//========================================================
+#ifdef MODC_ARM
+  //========================================================
   case ARM_PITCH_1a1b_SETPOINT:
     memcpy(&servo_data_1a, msg_data, 4);
     memcpy(&servo_data_1b, msg_data + 4, 4);
@@ -310,108 +300,130 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
     phi_dxl = servo_data_1b;
     getpositions[0] = (int32_t)(-((theta_dxl * (4096 / (2.0 * M_PI))) + (phi_dxl * (4096 / (2.0 * M_PI)))) / 2) + getpositions0[0];
     getpositions[1] = (int32_t)(((theta_dxl * (4096 / (2.0 * M_PI))) - (phi_dxl * (4096 / (2.0 * M_PI)))) / 2) + getpositions0[1];
-#ifdef MODC_ARM
+
     dxl.setGoalPosition_EPCM(getpositions);
-#endif
+
     Debug.print("PITCH ARM 1a MOTOR DATA : \t");
     Debug.println(getpositions[0]);
     Debug.print("PITCH ARM 1b MOTOR DATA : \t");
     Debug.println(getpositions[1]);
     break;
 
-//========================================================
+    //========================================================
   case ARM_PITCH_2_SETPOINT:
     memcpy(&servo_data_float, msg_data, 4);
     valueToSend = (int32_t)(servo_data_float * (4096 / (2.0 * M_PI)));
     pos_mot_2 = valueToSend + pos0_mot_2;
-#ifdef MODC_ARM
+
     mot_2.setGoalPosition_EPCM(pos_mot_2);
-#endif
+
     Debug.print("PITCH ARM 2 MOTOR DATA : \t");
     Debug.println(pos_mot_2);
     break;
 
-//========================================================
+    //========================================================
   case ARM_ROLL_3_SETPOINT:
     memcpy(&servo_data_float, msg_data, 4);
     valueToSend = (int32_t)(servo_data_float * (4096 / (2.0 * M_PI)));
     pos_mot_3 = valueToSend + pos0_mot_3;
-#ifdef MODC_ARM
+
     mot_3.setGoalPosition_EPCM(pos_mot_3);
-#endif
+
     Debug.print("ROLL ARM 3 MOTOR DATA : \t");
     Debug.println(pos_mot_3);
     break;
 
-//========================================================
+    //========================================================
   case ARM_PITCH_4_SETPOINT:
     memcpy(&servo_data_float, msg_data, 4);
     valueToSend = (int32_t)(servo_data_float * (4096 / (2.0 * M_PI)));
     pos_mot_4 = pos0_mot_4 + valueToSend;
-#ifdef MODC_ARM
+
     mot_4.setGoalPosition_EPCM(pos_mot_4);
-#endif
+
     Debug.print("PITCH ARM 4 MOTOR DATA : \t");
     Debug.println(pos_mot_4);
     break;
 
-//========================================================
+    //========================================================
   case ARM_ROLL_5_SETPOINT:
     memcpy(&servo_data_float, msg_data, 4);
     valueToSend = (int32_t)(servo_data_float * (4096 / (2.0 * M_PI)));
     pos_mot_5 = pos0_mot_5 - valueToSend;
-#ifdef MODC_ARM
+
     mot_5.setGoalPosition_EPCM(pos_mot_5);
-#endif
+
     Debug.print("ROLL ARM 5 MOTOR DATA : \t");
     Debug.println(pos0_mot_5);
     break;
 
-//========================================================
+    //========================================================
   case ARM_ROLL_6_SETPOINT:
     memcpy(&servo_data_float, msg_data, 4);
     valueToSend = (int32_t)(servo_data_float * (4096 / (2.0 * M_PI)));
     pos_mot_6 = pos0_mot_6 - valueToSend;
-#ifdef MODC_ARM
+
     mot_6.getCurrentLoad(presentLoad_mot_6);
     mot_6.getPresentPosition(pos_mot_6_actual);
-    while(presentLoad_mot_6<200 && abs(pos_mot_6_actual - pos_mot_6) > 10){
-    mot_6.getCurrentLoad(presentLoad_mot_6);
-    if(pos_mot_6_actual> pos_mot_6){
-    mot_6.setGoalPosition_EPCM(pos_mot_6_actual - 10);
-    pos_mot_6_actual -= 10;
-    }else{
-    mot_6.setGoalPosition_EPCM(pos_mot_6_actual + 10);
-    pos_mot_6_actual += 10;
+    while (presentLoad_mot_6 < 200 && abs(pos_mot_6_actual - pos_mot_6) > 10)
+    {
+      mot_6.getCurrentLoad(presentLoad_mot_6);
+      if (pos_mot_6_actual > pos_mot_6)
+      {
+        mot_6.setGoalPosition_EPCM(pos_mot_6_actual - 10);
+        pos_mot_6_actual -= 10;
+      }
+      else
+      {
+        mot_6.setGoalPosition_EPCM(pos_mot_6_actual + 10);
+        pos_mot_6_actual += 10;
+      }
     }
-    }
-#endif
+
     Debug.print("ROLL ARM 5 MOTOR DATA : \t");
     Debug.println(pos0_mot_5);
     break;
+#endif
 
-//========================================================
+#ifdef MODC_JOINT
+    //========================================================
   case JOINT_PITCH_1d1s_SETPOINT:
     memcpy(&servo_data, msg_data, 2);
-#ifdef MODC_JOINT
+
     dxlJOINT.setGoalPosition_EPCM(servo_data);
-#endif
+
     Debug.print("PITCH JOINT 1d1s MOTOR DATA : \t");
     Debug.println(servo_data);
     break;
   case JOINT_ROLL_2_SETPOINT:
     memcpy(&servo_data, msg_data, 2);
-#ifdef MODC_JOINT
+
     motorJOINT2Roll.setGoalPosition_EPCM(servo_data);
-#endif
+
     Debug.print("ROLL JOINT 2 MOTOR DATA : \t");
     Debug.println(servo_data);
     break;
-//========================================================
+#endif
+    //========================================================
   case MOTOR_TRACTION_REBOOT:
     mot_Left_traction.reboot();
     mot_Right_traction.reboot();
     Debug.println("Traction motors rebooted.");
+    break;
+
+  default:
+    Debug.print("\tUnknown message ID:\t");
+
+    Debug.print(msg_id);
+
+    Debug.print("\tData:\t");
+    for (int i = 0; i < 8; i++)
+    {
+      Debug.print(msg_data[i]);
+      if (i < 7)
+        Debug.print("\t");
+    }
+    Debug.print("\n");
     break;
   }
 }
@@ -424,8 +436,8 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
  *
  * @note The function uses conditional compilation to include/exclude parts of the code based on the presence of specific modules.
  */
-void sendFeedback(){
-
+void sendFeedback()
+{
 
   int32_t currentSpeeds_left;
   int32_t currentSpeeds_right;
@@ -492,8 +504,9 @@ void navInterrupt()
 {
   display.navInterrupt();
 }
-
-void MODC_ARM_INIT(){ // Initialize Dynamixel motors for the arm
+#ifdef MODC_ARM
+void MODC_ARM_INIT()
+{ // Initialize Dynamixel motors for the arm
 
   // Set the baud rate for Dynamixel communication
   dxl.begin_dxl(1000000);
@@ -547,8 +560,6 @@ void MODC_ARM_INIT(){ // Initialize Dynamixel motors for the arm
   mot_4.setOperatingMode(4);
   mot_5.setOperatingMode(4);
   mot_6.setOperatingMode(4);
-
-
 
   // Enable torque for both motors.
   dxl.setTorqueEnable(true);
@@ -609,8 +620,10 @@ void MODC_ARM_INIT(){ // Initialize Dynamixel motors for the arm
   mot_5.setGoalPosition_EPCM(pos0_mot_5); // Address 65, Value 1, Size 1 byte
   mot_6.setGoalPosition_EPCM(pos0_mot_6); // Address 65, Value 1, Size 1 byte
 }
+#endif
 
-void DXL_TRACTION_INIT(){
+void DXL_TRACTION_INIT()
+{
   dxl_traction.begin_dxl(1000000);
   mot_Left_traction.begin_dxl(1000000);
   mot_Right_traction.begin_dxl(1000000);

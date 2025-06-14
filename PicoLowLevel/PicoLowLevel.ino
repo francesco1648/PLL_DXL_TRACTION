@@ -50,6 +50,13 @@ float old_speeds_dxl[2] = {0.0f, 0.0f};
 float delta_speeds_dxl = 2.0f;
 uint8_t data_dxl_traction[8];
 
+  int32_t currentSpeeds_left;    // Current speeds of the left traction motor for feedback
+  int32_t currentSpeeds_right;  // Current speeds of the right traction motor for feedback
+
+int32_t servo_data;
+
+
+
 #ifdef MODC_YAW
 AbsoluteEncoder encoderYaw(ABSOLUTE_ENCODER_ADDRESS);
 #endif
@@ -110,6 +117,10 @@ DynamixelLL mot_3(Serial1, 113);
 DynamixelLL mot_4(Serial1, 214);
 DynamixelLL mot_5(Serial1, 215);
 DynamixelLL mot_6(Serial1, 216);
+
+
+bool arm_roll_6_active = false;
+int32_t target_pos_mot_6 = 0;
 
 #endif
 
@@ -229,6 +240,24 @@ void loop()
 
   // wm.handle();
   display.handleGUI();
+  //========================================================
+  #ifdef MODC_EE
+  if (arm_roll_6_active) {
+  mot_6.getCurrentLoad(presentLoad_mot_6);
+  mot_6.getPresentPosition(pos_mot_6_actual);
+
+  if (presentLoad_mot_6 > 200 || abs(pos_mot_6_actual - target_pos_mot_6) <= 10) {
+    arm_roll_6_active = false;  // fine movimento
+  } else {
+    if (pos_mot_6_actual > target_pos_mot_6) {
+      mot_6.setGoalPosition_EPCM(pos_mot_6_actual - 10);
+    } else {
+      mot_6.setGoalPosition_EPCM(pos_mot_6_actual + 10);
+    }
+  }
+
+}
+  #endif
 }
 
 /**
@@ -238,7 +267,7 @@ void loop()
  */
 void handleSetpoint(uint8_t msg_id, const byte *msg_data)
 {
-  int32_t servo_data;
+
 
   switch (msg_id)
   {
@@ -250,8 +279,8 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
     memcpy(&speeds_dxl[0], msg_data, 4);
     memcpy(&speeds_dxl[1], msg_data + 4, 4);
 
-    speeds_dxl[0] = speeds_dxl[0] * 0.667f; // adatto il massimo mandato dal telecomando (450.f) al massimo del motore (30 RPM)
-    speeds_dxl[1] = speeds_dxl[1] * 0.667f; // adatto il massimo mandato dal telecomando (450.f) al massimo del motore (30 RPM)
+    //speeds_dxl[0] = speeds_dxl[0] * 0.667f; // adatto il massimo mandato dal telecomando (450.f) al massimo del motore (30 RPM)
+    //speeds_dxl[1] = speeds_dxl[1] * 0.667f; // adatto il massimo mandato dal telecomando (450.f) al massimo del motore (30 RPM)
     if (abs(speeds_dxl - old_speeds_dxl) > delta_speeds_dxl)
     {
       dxl_traction.setGoalVelocity_RPM(speeds_dxl);
@@ -358,31 +387,19 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
     break;
 
     //========================================================
-  case ARM_ROLL_6_SETPOINT:
-    memcpy(&servo_data_float, msg_data, 4);
-    valueToSend = (int32_t)(servo_data_float * (4096 / (2.0 * M_PI)));
-    pos_mot_6 = pos0_mot_6 - valueToSend;
 
-    mot_6.getCurrentLoad(presentLoad_mot_6);
-    mot_6.getPresentPosition(pos_mot_6_actual);
-    while (presentLoad_mot_6 < 200 && abs(pos_mot_6_actual - pos_mot_6) > 10)
-    {
-      mot_6.getCurrentLoad(presentLoad_mot_6);
-      if (pos_mot_6_actual > pos_mot_6)
-      {
-        mot_6.setGoalPosition_EPCM(pos_mot_6_actual - 10);
-        pos_mot_6_actual -= 10;
-      }
-      else
-      {
-        mot_6.setGoalPosition_EPCM(pos_mot_6_actual + 10);
-        pos_mot_6_actual += 10;
-      }
-    }
 
     Debug.print("ROLL ARM 5 MOTOR DATA : \t");
     Debug.println(pos0_mot_5);
     break;
+    case ARM_ROLL_6_SETPOINT:
+  memcpy(&servo_data_float, msg_data, 4);
+  valueToSend = (int32_t)(servo_data_float * (4096 / (2.0 * M_PI)));
+  target_pos_mot_6 = pos0_mot_6 - valueToSend;
+
+  arm_roll_6_active = true;  // attiva la modalità di inseguimento
+  break;
+
 #endif
 
 #ifdef MODC_JOINT
@@ -438,9 +455,6 @@ void handleSetpoint(uint8_t msg_id, const byte *msg_data)
  */
 void sendFeedback()
 {
-
-  int32_t currentSpeeds_left;
-  int32_t currentSpeeds_right;
   mot_Left_traction.getPresentVelocity_RPM(currentSpeeds_left);
   mot_Right_traction.getPresentVelocity_RPM(currentSpeeds_right);
 
